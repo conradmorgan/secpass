@@ -2,7 +2,9 @@
 
 This software attempts to be a secure, but memorable, password generator. Although new and experimental, plenty of features and improvements are planned.
 
-So far, markov chains are employed to produce pronounceable sequences of letters. Additionally, password strength can be precisely specified by a desired number of bits of entropy, and everything else, such as length, is determined automatically.
+It employs a simple markov chain algorithm to produce pronounceable sequences of letters (or pseudowords). The markov chain records first and second-order state transition frequency distributions from an input wordlist, which means that letters depend on up to two previous letters.
+
+ Additionally, password strength can be precisely specified by a desired number of bits of entropy, and everything else, such as length, is determined automatically.
 
 Being an experimental demo, I would not recommend actually using any passwords generated from this at this time for anything important.
 
