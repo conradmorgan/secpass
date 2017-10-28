@@ -29,7 +29,6 @@
 #include <string.h>
 
 #define PASS_BUF_SIZE 64
-#define PASS_MAX_LEN (PASS_BUF_SIZE-1)
 
 static char *symbols = "~!@#$%^&*_-+=|:;()[]\"'<>,.?/0123456789";
 
@@ -89,7 +88,6 @@ double rand_double() {
         getrandom(&sensitive.rand_buffer[0], sizeof(sensitive.rand_buffer), 0);
         n = (n << (8 * sizeof(sensitive.rand_buffer))) | sensitive.rand_buffer[0];
     }
-
     return (double)n / (double)d;
 }
 
@@ -127,70 +125,51 @@ double rand_letter_Cx(char *dst) {
     return entropy(1.0 / 26.0);
 }
 
-double rand_letter_Xc(char x, char *dst) {
-    int i = rand_index_from_dist(&f_Xc[x - 'a']);
+double rand_letter_xc(char x, char *dst) {
     double p;
+    int i = rand_index_from_dist(&f_xc[x - 'a']);
     if (i == -1) {
-        i = rand_index_from_dist(&f_xc[x - 'a']);
-        if (i == -1) {
-            i = (int)(rand_double() * 26.0);
-            p = 1.0 / 26.0;
-        } else {
-            p = f_xc[x - 'a'].dist[i];
-        }
-    } else {
-        p = f_Xc[x - 'a'].dist[i];
+        return 0.0;
     }
     *dst = (char)i + 'a';
-    return entropy(p);
+    return entropy(f_xc[x - 'a'].dist[i]);
 }
 
-double rand_letter_xc(char x, char *dst) {
-    int i = rand_index_from_dist(&f_xc[x - 'a']);
-    double p;
+double rand_letter_Xc(char x, char *dst) {
+    int i = rand_index_from_dist(&f_Xc[x - 'a']);
     if (i == -1) {
-        i = (int)(rand_double() * 26.0);
-        p = 1.0 / 26.0;
-    } else {
-        p = f_xc[x - 'a'].dist[i];
+        return rand_letter_xc(x, dst);
     }
     *dst = (char)i + 'a';
-    return entropy(p);
+    return entropy(f_Xc[x - 'a'].dist[i]);
 }
 
 double rand_letter_xxc(char x, char y, char *dst) {
-    int i = rand_index_from_dist(&f_xxc[x - 'a'][y - 'a']);
     double p;
+    int i = rand_index_from_dist(&f_xxc[x - 'a'][y - 'a']);
     if (i == -1) {
-        i = rand_index_from_dist(&f_xc[y - 'a']);
-        if (i == -1) {
-            i = (int)(rand_double() * 26.0);
-            p = 1.0 / 26.0;
-        } else {
-            p = f_xc[y - 'a'].dist[i];
-        }
-    } else {
-        p = f_xxc[x - 'a'][y - 'a'].dist[i];
+        return rand_letter_xc(y, dst);
     }
     *dst = (char)i + 'a';
-    return entropy(p);
+    return entropy(f_xxc[x - 'a'][y - 'a'].dist[i]);
+}
+
+double rand_letter_xC(char x, char *dst) {
+    int i = rand_index_from_dist(&f_xC[x - 'a']);
+    if (i == -1) {
+        return rand_letter_xc(x, dst);
+    }
+    *dst = (char)i + 'a';
+    return entropy(f_xC[x - 'a'].dist[i]);
 }
 
 double rand_letter_xxC(char x, char y, char *dst) {
     int i = rand_index_from_dist(&f_xxC[x - 'a'][y - 'a']);
-    double p;
     if (i == -1) {
-        i = rand_index_from_dist(&f_xC[y - 'a']);
-        if (i == -1) {
-            i = (int)(rand_double() * 26.0);
-        } else {
-            p = f_xC[y - 'a'].dist[i];
-        }
-    } else {
-        p = f_xxC[x - 'a'][y - 'a'].dist[i];
+        return rand_letter_xC(y, dst);
     }
     *dst = (char)i + 'a';
-    return entropy(p);
+    return entropy(f_xxC[x - 'a'][y - 'a'].dist[i]);
 }
 
 password rand_pr_word(char *buf, int minlen, int maxlen) {
@@ -199,21 +178,30 @@ password rand_pr_word(char *buf, int minlen, int maxlen) {
         return word;
     }
     int len = (int)(rand_double() * (double)(maxlen-minlen + 1)) + minlen;
+    double e;
     word.entropy += rand_letter_Cx(buf + word.length);
     word.length++;
     if (len > 1) {
-        word.entropy += rand_letter_Xc(buf[word.length - 1], buf + word.length);
+        if ((e = rand_letter_Xc(buf[word.length - 1], buf + word.length)) == 0.0) {
+            return word;
+        }
+        word.entropy += e;
         word.length++;
         if (len > 2) {
             while (word.length < len - 1) {
-                word.entropy += rand_letter_xxc(buf[word.length - 2], buf[word.length - 1], buf + word.length);
+                if ((e = rand_letter_xxc(buf[word.length - 2], buf[word.length - 1], buf + word.length)) == 0.0) {
+                    return word;
+                }
+                word.entropy += e;
                 word.length++;
             }
-            word.entropy += rand_letter_xxC(buf[word.length - 2], buf[word.length - 1], buf + word.length);
+            if ((e = rand_letter_xxC(buf[word.length - 2], buf[word.length - 1], buf + word.length)) == 0.0) {
+                return word;
+            }
+            word.entropy += e;
             word.length++;
         }
     }
-    buf[0] = toupper(buf[0]);
     word.entropy += entropy(1.0 / (double)(maxlen - minlen + 1));
     return word;
 }
@@ -233,7 +221,8 @@ password secpass_pr_sym(char *buf, size_t buf_size, int min_entropy, int max_ext
             if (buf_size - pass.length - 1 < 7) {
                 return (password){.string = NULL, .length = 0, .entropy = 0.0};
             }
-            password word = rand_pr_word(buf + pass.length, 3, 6);
+            password word = rand_pr_word(buf + pass.length, 2, 6);
+            buf[pass.length] = toupper(buf[pass.length]);
             pass.length += word.length;
             pass.entropy += word.entropy;
             if (rand_double() < 0.5) {
@@ -306,9 +295,9 @@ int main(int argc, char **argv) {
     }
     tabulate_letter_chain_frequencies(argv[1]);
     // Generate and display sample passwords with varying bits of entropy.
-    for (int e = 40; e <= 80; e += 8) {
+    for (int e = 30; e <= 70; e += 10) {
         printf("%d-bits minimum entropy:\n", e);
-        for (int c = 0; c < 3; c++) {
+        for (int c = 0; c < 10; c++) {
             password pass = secpass_pr_sym(&sensitive.password_buffer[0], sizeof(sensitive.password_buffer), e, 4);
             printf("\t(length: %d, bits: %d)\t%s\n", pass.length, (int)pass.entropy, pass.string);
         }

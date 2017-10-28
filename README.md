@@ -2,11 +2,13 @@
 
 This software attempts to be a secure, but memorable, password generator. Although new and experimental, plenty of features and improvements are planned.
 
-So far, markov chains are employed to produce pronounceable sequences of letters. In addition, generated passwords have configurable fine-grained levels of security, measured in bits of entropy.
+So far, markov chains are employed to produce pronounceable sequences of letters. Additionally, password strength can be precisely specified by a desired number of bits of entropy, and everything else, such as length, is determined automatically.
 
-Being an experimental demo, I would not recommend actually using any passwords generated from it at this time for anything important.
+Being an experimental demo, I would not recommend actually using any passwords generated from this at this time for anything important.
 
-Below are some example passwords using [this wordlist](https://github.com/dwyl/english-words/blob/master/words_alpha.txt) as input:
+Currently only Linux is officially supported, as it relies on the [getrandom](http://man7.org/linux/man-pages/man2/getrandom.2.html) system call for secure randomness. Other platforms will be supported as secpass matures.
+
+Below are some sample passwords using [this wordlist](https://github.com/dwyl/english-words/blob/master/words_alpha.txt) as input:
 
     30-bits minimum entropy:
         (length: 10, bits: 34)	Reds~Xamsn
