@@ -8,7 +8,7 @@ It employs a simple markov chain algorithm to produce pronounceable sequences of
 
 Being an experimental demo, I would not recommend actually using any passwords generated from this at this time for anything important.
 
-Currently only Linux is officially supported, as it relies on the [getrandom](http://man7.org/linux/man-pages/man2/getrandom.2.html) system call for secure randomness. Other platforms will be supported as secpass matures.
+Depends on [libsodium](https://github.com/jedisct1/libsodium) and currently only Linux is officially supported, as it relies on the [getrandom](http://man7.org/linux/man-pages/man2/getrandom.2.html) system call for secure randomness. Other platforms will likely be supported as secpass matures.
 
 Below are some sample passwords using [this wordlist](https://github.com/dwyl/english-words/blob/master/words_alpha.txt) as input:
 
@@ -23,7 +23,6 @@ Below are some sample passwords using [this wordlist](https://github.com/dwyl/en
         (length: 7, bits: 33)	RipSal&
         (length: 9, bits: 33)	$InsiveDi
         (length: 7, bits: 31)	=Hanet4
-
     40-bits minimum entropy:
         (length: 10, bits: 40)	ZedhodUpts
         (length: 11, bits: 40)	3RefulJobs$
@@ -35,7 +34,6 @@ Below are some sample passwords using [this wordlist](https://github.com/dwyl/en
         (length: 12, bits: 44)	TviesHinted1
         (length: 9, bits: 41)	2To'Mary.
         (length: 9, bits: 42)	Sh=Kagun]
-
     50-bits minimum entropy:
         (length: 12, bits: 53)	FuDonece"Can
         (length: 11, bits: 52)	$Diatip+Ce,
@@ -47,7 +45,6 @@ Below are some sample passwords using [this wordlist](https://github.com/dwyl/en
         (length: 12, bits: 52)	Ing8GuryGby+
         (length: 12, bits: 54)	#Ci2AcharOft
         (length: 12, bits: 52)	:Vi_JactPon3
-
     60-bits minimum entropy:
         (length: 14, bits: 64)	EgamsFills=Sk8
         (length: 16, bits: 63)	#Dism#DepticPeDe
@@ -59,7 +56,6 @@ Below are some sample passwords using [this wordlist](https://github.com/dwyl/en
         (length: 14, bits: 60)	Zo.Cl5CongerSh
         (length: 17, bits: 63)	/Gual8Quare^Xamor
         (length: 16, bits: 61)	1KentedLictCiOrm
-
     70-bits minimum entropy:
         (length: 18, bits: 73)	#Wi?ProseLioYoutHo
         (length: 15, bits: 74)	Ko%Wit*YiOgers>

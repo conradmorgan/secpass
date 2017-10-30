@@ -21,22 +21,21 @@
  * SOFTWARE.
  */
 
-#include <stdio.h>
 #include <ctype.h>
-#include <sys/random.h>
-#include <stdint.h>
 #include <math.h>
+#include <sodium.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/random.h>
+#include <sys/resource.h>
 
 #define PASS_BUF_SIZE 64
 
 static char *symbols = "~!@#$%^&*_-+=|:;()[]\"'<>,.?/0123456789";
 
-void secure_memset(void *ptr, uint8_t pattern, size_t count) {
-    volatile uint8_t *buf = ptr;
-    while (count--) {
-        *buf++ = pattern;
-    }
+double log_2(double x) {
+    return log(x) / log(2.0);
 }
 
 // Struct that contains a string with length and entropy measurements.
@@ -72,10 +71,11 @@ void normalize_dist(letter_dist *ldist) {
 }
 
 double entropy(double p) {
-    return -log2(p);
+    return -log_2(p);
 }
 
-// Everything in this struct is to be wiped from memory before program exit.
+// Everything in this struct should be prevented from being swapped out of main
+// memory and wiped from memory before program exit.
 static struct {
     char password_buffer[PASS_BUF_SIZE];
     uint16_t rand_buffer[1];
@@ -232,7 +232,7 @@ password secpass_pr_sym(char *buf, size_t buf_size, int min_entropy, int max_ext
         }
         // Make sure that it has equivalent security against naive brute-force and
         // that it doesn't go too much over the required minimum bits of entropy.
-        if ((int)((double)(pass.length - symnum) * log2(26) + (double)symnum * log2(strlen(symbols))) >= min_entropy
+        if ((int)((double)(pass.length - symnum) * log_2(26) + (double)symnum * log_2(strlen(symbols))) >= min_entropy
             && (int)pass.entropy <= min_entropy + max_extra_bits) {
             buf[pass.length] = '\x00';
             return pass;
@@ -243,8 +243,11 @@ password secpass_pr_sym(char *buf, size_t buf_size, int min_entropy, int max_ext
 // Reads a new-line separated file of alphanumeric words and
 // constructs markov chain probability distributions for use
 // with generating random pronounciable sequences of characters.
-void tabulate_letter_chain_frequencies(char *filename) {
+int tabulate_letter_chain_frequencies(char *filename) {
     FILE *f = fopen(filename, "r");
+    if (f == NULL) {
+        return 0;
+    }
     char c;
     do {
         char x = 0;
@@ -286,25 +289,55 @@ void tabulate_letter_chain_frequencies(char *filename) {
             normalize_dist(&f_xxC[i][j]);
         }
     }
+    return 1;
 }
 
 // Program takes a single command-line argument to be parsed by the above function.
 int main(int argc, char **argv) {
+    // Disable core dumps.
+    setrlimit(RLIMIT_CORE, &(struct rlimit){0, 0});
+    // Initialize libsodium, and give the option of proceeding anyway upon failure.
+    if (sodium_init() < 0) {
+        printf("libsodium failed to initialize... proceed with reduced security (y/n)? ");
+        char ans = 0;
+        if (scanf("%c", &ans) > 0) {
+            ans = tolower(ans);
+            if (ans == 'y') {
+                printf("WARNING! Sensitive cryptographic data and generated passwords in memory may not be properly wiped upon completion.\n");
+            } else if (tolower(ans) == 'n') {
+                printf("Exiting...\n");
+                return 0;
+            } else {
+                printf("Unrecognized input. Exiting...\n");
+                return 0;
+            }
+        } else {
+            printf("Input read error. Exiting...\n");
+            return 1;
+        }
+    } else {
+        // libsodium initialized and ready to use.
+        // Prevent sensitive data from being swapped out of main memory, also ensures memory is wiped once unlocked.
+        sodium_mlock(&sensitive, sizeof(sensitive));
+    }
     if (argc != 2) {
         return 1;
     }
-    tabulate_letter_chain_frequencies(argv[1]);
-    // Generate and display sample passwords with varying bits of entropy.
+    if (!tabulate_letter_chain_frequencies(argv[1])) {
+        printf("Failed to open '%s'. Exiting...\n", argv[1]);
+        return 0;
+    }
+    // Generate and display sample passwords of varying bits of entropy.
     for (int e = 30; e <= 70; e += 10) {
         printf("%d-bits minimum entropy:\n", e);
         for (int c = 0; c < 10; c++) {
             password pass = secpass_pr_sym(&sensitive.password_buffer[0], sizeof(sensitive.password_buffer), e, 4);
             printf("\t(length: %d, bits: %d)\t%s\n", pass.length, (int)pass.entropy, pass.string);
         }
-        printf("\n");
     }
-    // Securely erases any cryptographic random numbers, passwords, or other
-    // sensitive data that may still be lingering in memory.
-    secure_memset(&sensitive, 0x00, sizeof(sensitive));
+    // If libsodium succeeded to initialize earlier, then wipe sensitive memory and release it from the lock.
+    if (sodium_init() == 1) {
+        sodium_munlock(&sensitive, sizeof(sensitive));
+    }
     return 0;
 }
