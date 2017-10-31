@@ -31,8 +31,11 @@
 #include <sys/resource.h>
 
 #define PASS_BUF_SIZE 64
+#define ALPH 26
 
-static char *symbols = "~!@#$%^&*_-+=|:;()[]\"'<>,.?/0123456789";
+static char all_symbols[32]           = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+// '`| excluded.
+static char distinguished_symbols[29] = "!\"#$%&()*+,-./:;<=>?@[\\]^_{}~";
 
 double log_2(double x) {
     return log(x) / log(2.0);
@@ -53,18 +56,18 @@ typedef struct {
 } password;
 
 typedef struct {
-    double dist[26]; // Letter distribution, elements must sum to 1.
+    double dist[ALPH]; // Letter distribution, elements must sum to 1.
     char exists; // Either 0 or 1. Value of 0 indicates no distribution exists.
 } letter_dist;
 
 void normalize_dist(letter_dist *ldist) {
     double sum = 0;
-    for (int i = 0; i < 26; i++) {
+    for (int i = 0; i < ALPH; i++) {
         sum += ldist->dist[i];
     }
     if (sum > 0.0) {
         ldist->exists = 1;
-        for (int i = 0; i < 26; i++) {
+        for (int i = 0; i < ALPH; i++) {
             ldist->dist[i] /= sum;
         }
     }
@@ -86,7 +89,8 @@ double rand_double() {
     uint64_t d = 1ULL << 48;
     for (int i = 0; i < 3; i++) {
         getrandom(&sensitive.rand_buffer[0], sizeof(sensitive.rand_buffer), 0);
-        n = (n << (8 * sizeof(sensitive.rand_buffer))) | sensitive.rand_buffer[0];
+        n <<= 8 * sizeof(sensitive.rand_buffer);
+        n |= sensitive.rand_buffer[0];
     }
     return (double)n / (double)d;
 }
@@ -97,7 +101,7 @@ int rand_index_from_dist(letter_dist *ldist) {
     }
     double u = rand_double();
     double sum = 0.0;
-    for (int i = 0; i < 26; i++) {
+    for (int i = 0; i < ALPH; i++) {
         if (u > sum && u <= sum + ldist->dist[i]) {
             return i;
         }
@@ -107,22 +111,27 @@ int rand_index_from_dist(letter_dist *ldist) {
 }
 
 // Markov chain distributions.
-static letter_dist f_xc[26],
-                   f_Xc[26],
-                   f_xC[26],
-                   f_xxc[26][26],
-                   f_xxC[26][26];
+static letter_dist f_xc[ALPH],
+                   f_Xc[ALPH],
+                   f_xC[ALPH],
+                   f_xxc[ALPH][ALPH],
+                   f_xxC[ALPH][ALPH];
 
-double rand_symbol(char *dst) {
-    double len = (double)strlen(symbols);
-    *dst = symbols[(int)(rand_double() * len)];
-    return entropy(1.0 / len);
+static inline int sym_num_space() {
+    return 10 + sizeof(distinguished_symbols)/sizeof(char);
+}
+
+double rand_sym_num(char *dst) {
+    int space = sym_num_space();
+    int i = (int)((double)space * rand_double());
+    *dst = (i < 10) ? (i + '0') : distinguished_symbols[i - 10];
+    return entropy(1.0 / (double)space);
 }
 
 // rand_letter_* functions return the entropy of the randomly generated character.
 double rand_letter_Cx(char *dst) {
-    *dst = (char)(rand_double() * 26.0) + 'a';
-    return entropy(1.0 / 26.0);
+    *dst = (char)((double)ALPH * rand_double()) + 'a';
+    return entropy(1.0 / (double)ALPH);
 }
 
 double rand_letter_xc(char x, char *dst) {
@@ -183,20 +192,20 @@ password rand_pr_word(char *buf, int minlen, int maxlen) {
     word.length++;
     if (len > 1) {
         if ((e = rand_letter_Xc(buf[word.length - 1], buf + word.length)) == 0.0) {
-            return word;
+            return (password){NULL, 0, 0.0};
         }
         word.entropy += e;
         word.length++;
         if (len > 2) {
             while (word.length < len - 1) {
                 if ((e = rand_letter_xxc(buf[word.length - 2], buf[word.length - 1], buf + word.length)) == 0.0) {
-                    return word;
+                    return (password){NULL, 0, 0.0};
                 }
                 word.entropy += e;
                 word.length++;
             }
             if ((e = rand_letter_xxC(buf[word.length - 2], buf[word.length - 1], buf + word.length)) == 0.0) {
-                return word;
+                return (password){NULL, 0, 0.0};
             }
             word.entropy += e;
             word.length++;
@@ -206,36 +215,48 @@ password rand_pr_word(char *buf, int minlen, int maxlen) {
     return word;
 }
 
-// Generates a pronounceable password interspered with numbers or symbols and
+// Generates a pronounceable password interspered with numbers and symbols and
 // with at least `min_entropy` bits of password complexity.
 password secpass_pr_sym(char *buf, size_t buf_size, int min_entropy, int max_extra_bits) {
     password pass;
+    int max_word_len = 6;
+    int min_word_len = 2;
     for (;;) {
-        int symnum = 0;
+        int symbols = 0;
+        int words = 0;
         pass = (password){.string = buf, .length = 0, .entropy = 0.0};
         if (rand_double() < 0.5) {
-            pass.entropy += rand_symbol(&buf[pass.length++]) + 1;
-            symnum++;
+            pass.entropy += rand_sym_num(&buf[pass.length++]) + 1;
+            symbols++;
         }
         while ((int)pass.entropy < min_entropy) {
             if (buf_size - pass.length - 1 < 7) {
-                return (password){.string = NULL, .length = 0, .entropy = 0.0};
+                return (password){NULL, 0, 0.0};
             }
-            password word = rand_pr_word(buf + pass.length, 2, 6);
+            password word = rand_pr_word(buf + pass.length, min_word_len, max_word_len);
+            if (word.length == 0) {
+                continue;
+            }
             buf[pass.length] = toupper(buf[pass.length]);
             pass.length += word.length;
             pass.entropy += word.entropy;
+            words++;
             if (rand_double() < 0.5) {
-                pass.entropy += rand_symbol(buf + pass.length++) + 1;
-                symnum++;
+                pass.entropy += rand_sym_num(buf + pass.length++) + 1;
+                symbols++;
             }
         }
-        // Make sure that it has equivalent security against naive brute-force and
-        // that it doesn't go too much over the required minimum bits of entropy.
-        if ((int)((double)(pass.length - symnum) * log_2(26) + (double)symnum * log_2(strlen(symbols))) >= min_entropy
-            && (int)pass.entropy <= min_entropy + max_extra_bits) {
-            buf[pass.length] = '\x00';
-            return pass;
+        // Make sure it doesn't go too much over the required minimum bits of entropy.
+        if ((int)pass.entropy <= min_entropy + max_extra_bits) {
+            // Make sure that it has equivalent security against naive brute-force.
+            double naive_entropy = (double)(pass.length - symbols) * log_2(ALPH) +
+                (double)symbols * log_2((double)sym_num_space()) +
+                (double)words * log_2((double)(max_word_len - min_word_len + 1));
+            if ((int)naive_entropy >= min_entropy) {
+                pass.entropy = fmin(pass.entropy, naive_entropy);
+                buf[pass.length] = '\0';
+                return pass;
+            }
         }
     }
 }
@@ -254,6 +275,7 @@ int tabulate_letter_chain_frequencies(char *filename) {
         char y = 0;
         char x_last;
         while (isalpha(c = tolower(fgetc(f)))) {
+            c -= 'a';
             x_last = x;
             if (x == 0) {
                 if (y == 0) {
@@ -261,30 +283,30 @@ int tabulate_letter_chain_frequencies(char *filename) {
                 }
             } else {
                 if (y == 0) {
-                    f_Xc[x - 'a'].dist[c - 'a']++;
-                    f_xc[x - 'a'].dist[c - 'a']++;
+                    f_Xc[x].dist[c]++;
+                    f_xc[x].dist[c]++;
                     y = c;
                 } else {
-                    f_xxc[x - 'a'][y - 'a'].dist[c - 'a']++;
-                    f_xc[y - 'a'].dist[c - 'a']++;
+                    f_xxc[x][y].dist[c]++;
+                    f_xc[y].dist[c]++;
                     x = y;
                     y = c;
                 }
             }
         }
         if (x != 0 && y != 0) {
-            f_xC[x - 'a'].dist[y - 'a']++;
+            f_xC[x].dist[y]++;
             if (x_last != 0) {
-                f_xxC[x_last - 'a'][x - 'a'].dist[y - 'a']++;
+                f_xxC[x_last][x].dist[y]++;
             }
         }
     } while (c != EOF);
     fclose(f);
-    for (int i = 0; i < 26; i++) {
+    for (int i = 0; i < ALPH; i++) {
         normalize_dist(&f_xc[i]);
         normalize_dist(&f_Xc[i]);
         normalize_dist(&f_xC[i]);
-        for (int j = 0; j < 26; j++) {
+        for (int j = 0; j < ALPH; j++) {
             normalize_dist(&f_xxc[i][j]);
             normalize_dist(&f_xxC[i][j]);
         }
@@ -304,7 +326,7 @@ int main(int argc, char **argv) {
             ans = tolower(ans);
             if (ans == 'y') {
                 printf("WARNING! Sensitive cryptographic data and generated passwords in memory may not be properly wiped upon completion.\n");
-            } else if (tolower(ans) == 'n') {
+            } else if (ans == 'n') {
                 printf("Exiting...\n");
                 return 0;
             } else {
@@ -317,7 +339,7 @@ int main(int argc, char **argv) {
         }
     } else {
         // libsodium initialized and ready to use.
-        // Prevent sensitive data from being swapped out of main memory, also ensures memory is wiped once unlocked.
+        // Prevent sensitive data from being swapped out of main memory, alsoensures memory is wiped once unlocked.
         sodium_mlock(&sensitive, sizeof(sensitive));
     }
     if (argc != 2) {
