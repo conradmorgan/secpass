@@ -316,7 +316,7 @@ int tabulate_letter_chain_frequencies(char *filename) {
                 f_xxC[x_last][x].dist[y]++;
             }
         }
-    } while (c != EOF);
+    } while (!feof(f));
     fclose(f);
     for (int i = 0; i < ALPH; i++) {
         normalize_dist(&f_xc[i]);
