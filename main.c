@@ -277,9 +277,41 @@ password secpass_pr_sym(char *buf, size_t buf_size, int min_entropy, int max_ext
     }
 }
 
-// Reads a new-line separated file of alphanumeric words and
-// constructs markov chain probability distributions for use
-// with generating random pronounciable sequences of characters.
+// Vowels:     A       E       I           O           U    
+// Consonants:   B C D   F G H   J K L M N   P Q R S T   V W X Y Z
+// Alphabet:   A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+static char *xc_whitelist[ALPH] = {
+    "abcdefghijklmnopqrstuvwxyz", // A
+    "aeioubrwy", // B
+    "aeiouhryz", // C
+    "aeioudlrwy", // D
+    "abcdefghijklmnopqrstuvwxyz", // E
+    "aeioulr", // F
+    "aeiouhlry", // G
+    "aeiout", // H
+    "abcdefghijklmnopqrstuvwxyz", // I
+    "aeiouwy", // J
+    "aeiourwy", // K
+    "aeiouly", // L
+    "aeioulmnry", // M
+    "aeiounwy", // N
+    "abcdefghijklmnopqrstuvwxyz", // O
+    "aeiouhprwy", // P
+    "aeiouw", // Q
+    "aeiouhry", // R
+    "aeiouhklmnpqrstwy", // S
+    "aeiouhlrstwy", // T
+    "abcdefghijklmnopqrstuvwxyz", // U
+    "aeiouy", // V
+    "aeiouhry", // W
+    "aeiouty", // X
+    "aeioubdfgkmnpz", // Y
+    "aeioulmwy"  // Z
+};
+
+// Reads a new-line separated file of alphanumeric words and constructs markov
+// chain probability distributions for use with generating random pronounciable
+// sequences of letters.
 int tabulate_letter_chain_frequencies(char *filename) {
     FILE *f = fopen(filename, "r");
     if (f == NULL) {
@@ -299,12 +331,16 @@ int tabulate_letter_chain_frequencies(char *filename) {
                 }
             } else {
                 if (y == 0) {
-                    f_Xc[x].dist[c]++;
-                    f_xc[x].dist[c]++;
+                    if (strchr(xc_whitelist[x], c + 'a')) {
+                        f_Xc[x].dist[c]++;
+                        f_xc[x].dist[c]++;
+                    }
                     y = c;
                 } else {
-                    f_xxc[x][y].dist[c]++;
-                    f_xc[y].dist[c]++;
+                    if (strchr(xc_whitelist[y], c + 'a')) {
+                        f_xxc[x][y].dist[c]++;
+                        f_xc[y].dist[c]++;
+                    }
                     x = y;
                     y = c;
                 }
@@ -350,10 +386,10 @@ int main(int argc, char **argv) {
     }
     // Generate and display sample passwords of varying bits of entropy.
     for (int e = 30; e <= 70; e += 10) {
-        printf("%d-bits minimum entropy:\n", e);
+        printf("    %d-bits minimum entropy:\n", e);
         for (int c = 0; c < 10; c++) {
             password pass = secpass_pr_sym(&sensitive.password_buffer[0], sizeof(sensitive.password_buffer), e, 4);
-            printf("\t(length: %d, bits: %d)\t%s\n", pass.length, (int)pass.entropy, pass.string);
+            printf("        (length: %d, bits: %d)\t%s\n", pass.length, (int)pass.entropy, pass.string);
         }
     }
     // Wipe sensitive memory and release it from the swap lock.
